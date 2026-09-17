@@ -248,6 +248,94 @@ class TestOpenAIAgentsHooks:
             },
         )
 
+    async def test_on_tool_end_logs_to_trail(self, openai_run_hooks, memory_trail):
+        hook = openai_run_hooks(trail=memory_trail)
+        context = None
+        agent = SimpleNamespace(name="researcher")
+        tool = SimpleNamespace(name="web_search")
+
+        await hook.on_tool_end(context, agent, tool, "search results")
+
+        records = memory_trail.query()
+        assert len(records) == 1
+        assert records[0]["source"] == ContextSource.TOOL.value
+        assert records[0]["source_name"] == "openai:web_search"
+
+        import hashlib
+        import json
+
+        metadata = json.loads(records[0]["metadata_json"])
+        assert metadata["agent"] == "researcher"
+
+        expected_hash = hashlib.sha256(b"search results").hexdigest()
+        assert records[0]["content_hash"] == expected_hash
+
+    async def test_on_handoff_logs_to_trail(self, openai_run_hooks, memory_trail):
+        hook = openai_run_hooks(trail=memory_trail)
+        context = None
+        from_agent = SimpleNamespace(name="researcher")
+        to_agent = SimpleNamespace(name="writer")
+
+        await hook.on_handoff(context, from_agent, to_agent)
+
+        records = memory_trail.query()
+        assert len(records) == 1
+        assert records[0]["source"] == ContextSource.AGENT.value
+        assert records[0]["source_name"] == "openai:researcher"
+
+        import hashlib
+        import json
+
+        metadata = json.loads(records[0]["metadata_json"])
+        assert metadata["to_agent"] == "writer"
+
+        expected_hash = hashlib.sha256(b"Handoff from researcher to writer").hexdigest()
+        assert records[0]["content_hash"] == expected_hash
+
+    async def test_on_tool_end_missing_name_fallback(
+        self, openai_run_hooks, memory_trail
+    ):
+        hook = openai_run_hooks(trail=memory_trail)
+        # Using bare objects which have no .name attribute
+        await hook.on_tool_end(None, object(), object(), "content")
+
+        records = memory_trail.query()
+        import json
+
+        metadata = json.loads(records[0]["metadata_json"])
+        assert records[0]["source_name"] == "openai:unknown"
+        assert metadata["agent"] == "unknown"
+
+    async def test_on_handoff_missing_name_fallback(
+        self, openai_run_hooks, memory_trail
+    ):
+        hook = openai_run_hooks(trail=memory_trail)
+        await hook.on_handoff(None, object(), object())
+
+        records = memory_trail.query()
+        import json
+
+        metadata = json.loads(records[0]["metadata_json"])
+        assert records[0]["source_name"] == "openai:unknown"
+        assert metadata["to_agent"] == "unknown"
+
+    async def test_multi_step_chain_integrity(self, openai_run_hooks, memory_trail):
+        hook = openai_run_hooks(trail=memory_trail)
+        agent1 = SimpleNamespace(name="researcher")
+        agent2 = SimpleNamespace(name="writer")
+        tool1 = SimpleNamespace(name="search")
+        tool2 = SimpleNamespace(name="save_file")
+
+        # Simulate workflow
+        await hook.on_tool_end(None, agent1, tool1, "found data")
+        await hook.on_handoff(None, agent1, agent2)
+        await hook.on_tool_end(None, agent2, tool2, "file saved")
+
+        # Verify the cryptographic chain
+        verdict = memory_trail.verify_chain()
+        assert verdict.intact is True
+        assert verdict.total_records == 3
+
 
 class TestOpenAIAgentsImportError:
     @pytest.mark.skipif(_has_openai_agents, reason="openai-agents IS installed")
