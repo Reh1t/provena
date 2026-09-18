@@ -867,6 +867,11 @@ class TestCLIHelp:
         assert "audit" in result.output
         assert "verify" in result.output
         assert "report" in result.output
+        assert "retain" in result.output
+        assert "summary" in result.output
+        assert "stats" in result.output
+        assert "migrate" in result.output
+        assert "mcp" in result.output
 
     def test_audit_help(self):
         runner = CliRunner()

@@ -9,5 +9,14 @@ def test_help_lists_all_top_level_commands() -> None:
     result = CliRunner().invoke(cli, ["--help"])
 
     assert result.exit_code == 0
-    for command in ("audit", "verify", "report", "retain", "migrate", "mcp"):
+    for command in (
+        "audit",
+        "verify",
+        "report",
+        "retain",
+        "summary",
+        "stats",
+        "migrate",
+        "mcp",
+    ):
         assert command in result.output
